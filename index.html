@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RPG Map Battle Game</title>
+<style>
+  body {
+    background: #0d0d0d;
+    color: #f5f5f5;
+    font-family: monospace;
+    text-align: center;
+    margin: 0;
+    padding: 0;
+  }
+  h1 { color: #f1c40f; margin-top: 20px; }
+  #start-screen, #game-screen { display: none; }
+  input { padding: 5px; border-radius: 5px; border: none; }
+  button { background: #3498db; border: none; color: white; padding: 8px 12px; border-radius: 5px; margin: 3px; cursor: pointer; font-weight: bold; }
+  button:hover { background: #2980b9; }
+  #map { display: grid; grid-template-columns: repeat(5, 60px); grid-template-rows: repeat(5, 60px); gap: 5px; justify-content: center; margin: 20px auto; border: 3px solid silver; padding: 5px; background: #1a1a1a; }
+  .cell { width: 60px; height: 60px; background: #222; display: flex; justify-content: center; align-items: center; border-radius: 6px; }
+  .player { background: linear-gradient(135deg, #3498db,#2ecc71); width: 40px; height: 40px; border-radius: 6px; }
+  .enemy { width: 40px; height: 40px; border-radius: 6px; }
+  .enemy.wave1 { background: linear-gradient(135deg, #c0392b,#8e44ad); }
+  .enemy.wave2 { background: linear-gradient(135deg, #16a085,#27ae60); }
+  .enemy.wave3 { background: linear-gradient(135deg, #2c3e50,#7f8c8d); }
+  .arena { display: flex; justify-content: space-around; align-items: flex-end; height: 150px; margin-bottom: 10px; }
+  .bar { height: 14px; background: #333; border-radius: 10px; margin: 5px; overflow: hidden; }
+  .bar-inner { height: 100%; background: #27ae60; transition: width 0.3s; }
+  .enemy-bar .bar-inner { background: #e74c3c; }
+  #log { background: #000; height: 120px; color: #0f0; overflow-y: auto; text-align: left; padding: 10px; border-radius: 8px; font-size: 14px; margin-top:10px; }
+  #upgrade-menu { display: none; margin-top: 10px; }
+  #controls button { width: 50px; height: 50px; margin: 2px; font-size: 18px; }
+</style>
+</head>
+<body>
+
+<h1>⚔️ RPG Map Battle Game ⚔️</h1>
+
+<div id="start-screen">
+  <p>Enter your hero name:</p>
+  <input type="text" id="player-name" placeholder="Hero">
+  <button onclick="startGame()">Start</button>
+</div>
+
+<div id="game-screen">
+  <p>Hero: <strong id="display-name"></strong> | Level: <span id="player-level">1</span> | HP: <span id="player-hp-text">100</span>/<span id="player-maxhp-text">100</span> | Gold: 💰<span id="gold">0</span> | XP: <span id="xp">0</span></p>
+
+  <div id="map"></div>
+
+  <div id="controls">
+    <button onclick="move('up')">↑</button><br>
+    <button onclick="move('left')">←</button>
+    <button onclick="move('down')">↓</button>
+    <button onclick="move('right')">→</button>
+  </div>
+
+  <div id="battle-screen" style="display:none;">
+    <div class="arena">
+      <div class="character player">
+        <div class="bar"><div id="player-hp" class="bar-inner" style="width:100%"></div></div>
+      </div>
+      <div class="character enemy">
+        <div class="bar enemy-bar"><div id="enemy-hp" class="bar-inner" style="width:100%"></div></div>
+      </div>
+    </div>
+    <button onclick="attack()">Attack ⚔️</button>
+    <button onclick="heal()">Heal 💖</button>
+    <button onclick="special()">Fireball 🔥</button>
+  </div>
+
+  <div id="log"></div>
+
+  <div id="upgrade-menu">
+    <h3>Choose an Upgrade</h3>
+    <button onclick="upgrade('attack')">+2 Attack (20💰)</button>
+    <button onclick="upgrade('defense')">+1 Defense (15💰)</button>
+    <button onclick="upgrade('health')">+10 HP (25💰)</button>
+  </div>
+</div>
+
+<script>
+let player = { name:'', hp:100, maxHp:100, attack:10, defense:3, level:1, xp:0, gold:0 };
+let mapSize = 5;
+let map = [];
+let playerPos = { x:2, y:2 };
+let enemies = [];
+let currentEnemy = null;
+let wave = 1;
+
+function startGame(){
+  const name = document.getElementById('player-name').value || 'Hero';
+  player.name = name;
+  document.getElementById('display-name').innerText = name;
+  document.getElementById('start-screen').style.display='none';
+  document.getElementById('game-screen').style.display='block';
+  createMap();
+  spawnWave();
+}
+
+function createMap(){
+  const mapDiv = document.getElementById('map');
+  mapDiv.innerHTML='';
+  map = [];
+  for(let y=0;y<mapSize;y++){
+    let row=[];
+    for(let x=0;x<mapSize;x++){
+      const cell = document.createElement('div');
+      cell.className='cell';
+      cell.id=`cell-${x}-${y}`;
+      mapDiv.appendChild(cell);
+      row.push(cell);
+    }
+    map.push(row);
+  }
+  updateMap();
+}
+
+function updateMap(){
+  for(let y=0;y<mapSize;y++){
+    for(let x=0;x<mapSize;x++){
+      map[y][x].innerHTML='';
+    }
+  }
+  const playerEl = document.createElement('div'); playerEl.className='player';
+  map[playerPos.y][playerPos.x].appendChild(playerEl);
+
+  enemies.forEach(e=>{
+    const enemyEl = document.createElement('div'); 
+    enemyEl.className=`enemy wave${e.wave}`;
+    map[e.y][e.x].appendChild(enemyEl);
+  });
+}
+
+function move(dir){
+  if(currentEnemy) return logMsg('❌ Finish battle first!');
+  let nx=playerPos.x, ny=playerPos.y;
+  if(dir==='up') ny--; if(dir==='down') ny++; if(dir==='left') nx--; if(dir==='right') nx++;
+  if(nx<0||ny<0||nx>=mapSize||ny>=mapSize) return;
+  playerPos={x:nx, y:ny};
+  // Check if enemy is on new pos
+  const enemyHere = enemies.find(e=>e.x===nx && e.y===ny);
+  if(enemyHere){
+    startBattle(enemyHere);
+  }
+  updateMap();
+}
+
+function spawnWave(){
+  enemies=[];
+  for(let i=0;i<wave+1;i++){
+    let ex=Math.floor(Math.random()*mapSize);
+    let ey=Math.floor(Math.random()*mapSize);
+    // avoid spawning on player
+    if(ex===playerPos.x && ey===playerPos.y){ i--; continue; }
+    enemies.push({x:ex, y:ey, wave:wave, hp:50+wave*20, attack:5+wave*2});
+  }
+  updateMap();
+  logMsg(`🌟 Wave ${wave} has spawned!`);
+}
+
+function startBattle(enemy){
+  currentEnemy = enemy;
+  document.getElementById('battle-screen').style.display='block';
+  document.getElementById('player-hp').style.width=(player.hp/player.maxHp*100)+'%';
+  document.getElementById('enemy-hp').style.width=(enemy.hp/(50+wave*20)*100)+'%';
+  logMsg(`⚔️ You encounter an enemy!`);
+}
+
+function updateBattleUI(){
+  document.getElementById('player-hp').style.width=(player.hp/player.maxHp*100)+'%';
+  document.getElementById('player-hp-text').innerText=player.hp;
+  document.getElementById('player-maxhp-text').innerText=player.maxHp;
+  document.getElementById('enemy-hp').style.width=(currentEnemy.hp/(50+wave*20)*100)+'%';
+}
+
+function logMsg(msg){
+  const log=document.getElementById('log');
+  log.innerHTML+=msg+'<br>';
+  log.scrollTop=log.scrollHeight;
+}
+
+function attack(){
+  if(!currentEnemy) return;
+  let dmg=Math.floor(Math.random()*player.attack)+5;
+  currentEnemy.hp-=dmg;
+  logMsg(`💥 You hit enemy for ${dmg} damage!`);
+  updateBattleUI();
+  if(currentEnemy.hp<=0) return winBattle();
+  enemyTurn();
+}
+
+function special(){
+  if(!currentEnemy) return;
+  let dmg=Math.floor(Math.random()*(player.attack+5))+10;
+  currentEnemy.hp-=dmg;
+  logMsg(`🔥 Fireball hits for ${dmg} damage!`);
+  updateBattleUI();
+  if(currentEnemy.hp<=0) return winBattle();
+  enemyTurn();
+}
+
+function heal(){
+  if(!currentEnemy) return;
+  let healAmt=Math.floor(Math.random()*10)+10;
+  player.hp=Math.min(player.hp+healAmt, player.maxHp);
+  logMsg(`💖 You healed ${healAmt} HP!`);
+  updateBattleUI();
+  enemyTurn();
+}
+
+function enemyTurn(){
+  if(!currentEnemy) return;
+  let dmg=Math.floor(Math.random()*currentEnemy.attack)+3-player.defense/2;
+  dmg=Math.max(1,dmg);
+  player.hp-=dmg;
+  logMsg(`👿 Enemy hits you for ${dmg} damage!`);
+  updateBattleUI();
+  if(player.hp<=0) return loseBattle();
+}
+
+function winBattle(){
+  logMsg(`🏆 You defeated the enemy!`);
+  player.gold+=10*wave;
+  player.xp+=15*wave;
+  if(player.xp>=player.level*40){ player.level++; player.xp=0; player.maxHp+=10; player.hp=player.maxHp; logMsg(`✨ You leveled up! Lv ${player.level}`); }
+  // remove enemy
+  enemies=enemies.filter(e=>e!==currentEnemy);
+  currentEnemy=null;
+  document.getElementById('battle-screen').style.display='none';
+  updateMap();
+  if(enemies.length===0){ wave++; spawnWave(); document.getElementById('upgrade-menu').style.display='block'; }
+}
+
+function loseBattle(){
+  logMsg('💀 You were defeated...');
+  document.getElementById('battle-screen').style.display='none';
+  document.getElementById('controls').style.display='none';
+}
+
+function upgrade(type){
+  const cost={attack:20,defense:15,health:25};
+  if(player.gold<cost[type]) return logMsg('❌ Not enough gold!');
+  player.gold-=cost[type];
+  if(type==='attack') player.attack+=2;
+  if(type==='defense') player.defense+=1;
+  if(type==='health'){ player.maxHp+=10; player.hp=player.maxHp; }
+  logMsg(`🔼 Upgraded ${type}!`);
+  document.getElementById('upgrade-menu').style.display='none';
+}
+document.getElementById('start-screen').style.display='block';
+</script>
+
+</body>
+</html>
